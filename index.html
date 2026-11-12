@@ -1,0 +1,945 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Calendar 2027</title>
+<style>
+  @font-face {
+    font-family: "CalSans";
+    src: url("CalSansVF.ttf") format("truetype");
+    font-weight: 100 900;
+    font-display: block;
+  }
+  :root { --ink: #111; --muted: #8a8a86; --line: #e6e6e3; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #fff; overflow: hidden; }
+  body { font-family: "CalSans", system-ui, sans-serif; color: var(--ink); -webkit-font-smoothing: antialiased; }
+  #stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .bar {
+    position: fixed; left: 0; right: 0; bottom: 0; height: 64px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px; gap: 12px; font-size: 15px; letter-spacing: 0.01em;
+  }
+  .nav { display: flex; align-items: center; gap: 6px; }
+  .nav .label { min-width: 132px; text-align: center; font-size: 17px; }
+  button {
+    font: inherit; color: var(--ink); background: none; border: 1px solid var(--line);
+    border-radius: 999px; height: 36px; padding: 0 16px; cursor: pointer;
+    transition: background .15s, border-color .15s;
+  }
+  button:hover { background: #f5f5f3; border-color: #d6d6d2; }
+  button.icon { width: 36px; padding: 0; font-size: 18px; line-height: 1; }
+  button.icon svg { display: block; margin: auto; }
+  button[hidden] { display: none; }
+  button { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+  .side { display: flex; gap: 8px; min-width: 200px; }
+  .side.right { justify-content: flex-end; }
+  .year { color: var(--muted); align-self: center; }
+  .arena {
+    position: fixed; left: 24px; bottom: calc(var(--bar-h, 64px) + 8px); width: 320px; padding: 16px;
+    background: #fff; border: 1px solid var(--line); border-radius: 16px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.08); display: none; z-index: 2;
+  }
+  .arena.open { display: block; }
+  .arena.right { left: auto; right: 24px; }
+  .arena.center { left: 50%; transform: translateX(-50%); top: 24px; bottom: auto; }  /* up top so the page stays visible */
+  .arena textarea {
+    display: block; width: 100%; box-sizing: border-box; resize: none; font: inherit; font-size: 14px;
+    line-height: 1.5; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; outline: none;
+  }
+  .arena textarea:focus { border-color: #111; }
+  .arena .close {
+    position: absolute; top: 10px; right: 10px; width: 32px; height: 32px; padding: 0;
+    display: grid; place-items: center; border: 0; background: none; color: var(--muted);
+  }
+  .arena .close:hover { color: #111; }
+  .arena .stack { display: flex; flex-direction: column; gap: 8px; }
+  .arena .stack button { text-align: left; display: flex; justify-content: space-between; align-items: center; }
+  .arena .stack button span { color: var(--muted); font-size: 13px; }
+  .arena .stack button:disabled { opacity: .5; cursor: default; }
+  .arena h3 { margin: 0 0 4px; font-size: 16px; font-weight: 600; }
+  .arena p { margin: 0 0 12px; color: var(--muted); font-size: 13px; line-height: 1.4; }
+  .arena form { display: flex; gap: 8px; }
+  .arena input {
+    flex: 1; min-width: 0; font: inherit; font-size: 14px; height: 36px; padding: 0 12px;
+    border: 1px solid var(--line); border-radius: 999px; outline: none;
+  }
+  .arena input:focus { border-color: #111; }
+  .arena button.go { background: #111; color: #fff; border-color: #111; }
+  .arena button.go:disabled { opacity: .5; cursor: default; }
+  .arena .status { margin-top: 10px; font-size: 13px; color: var(--muted); min-height: 1em; }
+  .arena .status.err { color: #c0392b; }
+  body.capture .bar, body.capture .arena, body.capture .drop { display: none !important; }
+  .drop { position: fixed; inset: 0; border: 2px dashed #111; border-radius: 16px; margin: 12px; pointer-events: none; opacity: 0; transition: opacity .15s; }
+  body.dragging .drop { opacity: 1; }
+  @media (max-width: 560px) {
+    .arena, .arena.right { left: 12px; right: 12px; width: auto; }
+    .arena.center { transform: none; }
+    .arena input, .arena textarea { font-size: 16px; }                 /* stops iOS zoom-on-focus */
+    .bar {
+      height: auto; flex-wrap: wrap; row-gap: 10px;
+      padding: 10px 14px calc(12px + env(safe-area-inset-bottom));
+    }
+    .nav { order: -1; width: 100%; justify-content: center; }
+    .nav .label { min-width: 120px; font-size: 18px; }
+    .side { min-width: 0; }
+    .year { display: none; }
+    button { padding: 0 14px; height: 40px; }
+    button.icon { width: 40px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<div class="bar">
+  <div class="side"><button id="arenaBtn">Are.na</button></div>
+  <div class="nav">
+    <button class="icon" id="prev" aria-label="Previous month">‹</button>
+    <span class="label" id="label">January</span>
+    <button class="icon" id="next" aria-label="Next month">›</button>
+  </div>
+  <div class="side right">
+    <button id="remove" hidden>Remove</button>
+    <button id="upload">Add image</button>
+    <button class="icon" id="dlBtn" aria-label="Download for print" title="Download for print"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/></svg></button>
+  </div>
+</div>
+<div class="arena" id="arena">
+  <h3>Import from Are.na</h3>
+  <p>Paste a public channel link or slug. The first 12 images fill January–December.</p>
+  <form id="arenaForm">
+    <input id="arenaInput" placeholder="are.na/user/channel-name" autocomplete="off" spellcheck="false" />
+    <button class="go" id="arenaGo" type="submit">Import</button>
+  </form>
+  <div class="status" id="arenaStatus"></div>
+</div>
+<div class="arena right" id="dl">
+  <h3>Download for print</h3>
+  <p>All 12 months as a PDF, one page per month, at print resolution.</p>
+  <div class="stack">
+    <button data-fmt="letter">PDF · US Letter <span>8.5 × 11 in</span></button>
+    <button data-fmt="a4">PDF · A4 <span>210 × 297 mm</span></button>
+    <button data-fmt="png">This month only <span>PNG</span></button>
+  </div>
+  <div class="status" id="dlStatus"></div>
+</div>
+<div class="arena center" id="notes">
+  <button class="close" id="notesClose" aria-label="Close notes" title="Close"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8"/></svg></button>
+  <h3 id="notesTitle">Notes</h3>
+  <p>Shows on the page and in the print download.</p>
+  <textarea id="notesInput" rows="5" placeholder="Add a note…" spellcheck="true"></textarea>
+</div>
+<div class="drop"></div>
+<input type="file" id="file" accept="image/*" hidden />
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from "three";
+
+const YEAR = 2027;
+const CAPTURE = new URLSearchParams(location.search).has("capture");   // video export mode
+if (CAPTURE) document.body.classList.add("capture");
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const CW = 1200, CH = 1600;          // canvas texture size (3:4)
+const IMG_H = 1240;                  // image takes ~78% of the page
+const PAGE_H = 2, PAGE_W = PAGE_H * CW / CH;
+const SEG = 90;
+
+/* ---------- storage (IndexedDB, optional) ---------- */
+const db = await new Promise((res) => {
+  try {
+    const r = indexedDB.open("calendar-2027", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("images");
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => res(null);
+  } catch { res(null); }
+});
+const idb = (mode, fn) => new Promise((res) => {
+  if (!db) return res(null);
+  try {
+    const tx = db.transaction("images", mode);
+    const req = fn(tx.objectStore("images"));
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => res(null);
+  } catch { res(null); }
+});
+
+/* ---------- font ---------- */
+try {
+  const ff = new FontFace("CalSans", "url(CalSansVF.ttf)", { weight: "100 900" });
+  await ff.load();
+  document.fonts.add(ff);
+} catch (e) { console.warn("Font failed to load", e); }
+await document.fonts.ready;
+
+/* ---------- month pages (2D canvas → texture) ---------- */
+const images = new Array(12).fill(null);     // your own uploads / imports (saved in the browser)
+const defaults = new Array(12).fill(null);   // built-in photos from the default Are.na channel
+let notes = new Array(12).fill("");
+try { const n = JSON.parse(localStorage.getItem("calendar-2027-notes")); if (Array.isArray(n)) notes = MONTHS.map((_, i) => String(n[i] || "")); } catch {}
+const saveNotes = () => { try { localStorage.setItem("calendar-2027-notes", JSON.stringify(notes)); } catch {} };
+const NOTES_X = 850, NOTES_TOP = 1272, NOTE_LINES = 5;
+const DEFAULT_CHANNEL = "https://www.are.na/oz-osborn-ixk4ij4uxi8/calendar-images";
+const pages = MONTHS.map(() => {
+  const canvas = document.createElement("canvas");
+  canvas.width = CW; canvas.height = CH;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.anisotropy = 8;
+  tex.generateMipmaps = true;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  return { canvas, ctx: canvas.getContext("2d"), tex };
+});
+
+const daysIn = (m) => new Date(YEAR, m + 1, 0).getDate();
+const dow = (m, d) => (new Date(YEAR, m, d).getDay() + 6) % 7; // 0 = Monday
+const pad = (n) => String(n).padStart(2, "0");
+function isoWeek(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - day);
+  const y0 = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil(((d - y0) / 864e5 + 1) / 7);
+}
+const font = (w, px) => `${w} ${px}px CalSans, system-ui, sans-serif`;
+
+function wrapLines(ctx, text, maxW) {
+  const out = [];
+  for (const para of text.split("\n")) {
+    let line = "";
+    for (const word of para.split(/\s+/).filter(Boolean)) {
+      let w = word;
+      while (ctx.measureText(w).width > maxW) {          // hard-break very long words
+        let i = w.length - 1;
+        while (i > 1 && ctx.measureText(w.slice(0, i)).width > maxW) i--;
+        if (line) { out.push(line); line = ""; }
+        out.push(w.slice(0, i)); w = w.slice(i);
+      }
+      const t = line ? line + " " + w : w;
+      if (ctx.measureText(t).width > maxW) { out.push(line); line = w; } else line = t;
+    }
+    out.push(line);
+  }
+  while (out.length && !out[out.length - 1]) out.pop();
+  return out;
+}
+
+function drawMonth(m) {
+  paint(pages[m].ctx, m);
+  pages[m].tex.needsUpdate = true;
+}
+
+// draws a month in 1200×1600 units (scale the ctx first for hi-res export)
+function paint(ctx, m) {
+  const img = images[m] || defaults[m];
+  ctx.save();
+  ctx.clearRect(0, 0, CW, CH);
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, CW, CH);
+
+  // --- image area ---
+  if (img) {
+    const iw = img.width, ih = img.height;
+    const s = Math.max(CW / iw, IMG_H / ih);
+    const dw = iw * s, dh = ih * s;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, 0, CW, IMG_H); ctx.clip();
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(img, (CW - dw) / 2, (IMG_H - dh) / 2, dw, dh);
+    const g = ctx.createLinearGradient(0, IMG_H * 0.55, 0, IMG_H);
+    g.addColorStop(0, "rgba(0,0,0,0)");
+    g.addColorStop(1, "rgba(0,0,0,0.38)");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, CW, IMG_H);
+    ctx.restore();
+  } else {
+    ctx.fillStyle = "#f1f1ef";
+    ctx.fillRect(0, 0, CW, IMG_H);
+    ctx.fillStyle = CAPTURE ? "rgba(0,0,0,0)" : "#a3a39f";   // no prompt text in videos
+    ctx.textAlign = "center";
+    ctx.font = font(400, 90);
+    ctx.fillText("+", CW / 2, 520);
+    ctx.font = font(500, 34);
+    ctx.fillText("Click to add an image", CW / 2, 580);
+    ctx.textAlign = "left";
+  }
+
+  const ink = img ? "#ffffff" : "#111111";
+
+  // --- month name ---
+  ctx.fillStyle = ink;
+  ctx.font = font(600, 176);
+  if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
+  ctx.fillText(MONTHS[m], 40, 1004);
+  if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
+
+  // --- day numbers in two rows (1–16, 17–end) ---
+  const left = 44, right = CW - 44, colW = (right - left) / 16;
+  ctx.font = font(600, 46);
+  for (let d = 1; d <= daysIn(m); d++) {
+    const row = d <= 16 ? 0 : 1;
+    const col = row ? d - 17 : d - 1;
+    const weekend = dow(m, d) >= 5;
+    ctx.globalAlpha = weekend ? 0.5 : 1;
+    ctx.fillText(pad(d), left + col * colW, 1140 + row * 60);
+  }
+  ctx.globalAlpha = 1;
+
+  // --- bottom info strip ---
+  const top = 1272;
+
+  // column 1: year info
+  const first = new Date(YEAR, m, 1), last = new Date(YEAR, m, daysIn(m));
+  const lines = [
+    [600, "#111", String(YEAR)],
+    [500, "#111", MONTHS[m]],
+    [400, "#8a8a86", `Month ${pad(m + 1)} of 12`],
+    [400, "#8a8a86", `${daysIn(m)} days`],
+    [400, "#8a8a86", `Weeks ${pad(isoWeek(first))}–${pad(isoWeek(last))}`],
+  ];
+  lines.forEach(([w, c, t], i) => {
+    ctx.font = font(w, 27); ctx.fillStyle = c;
+    ctx.fillText(t, 44, top + 50 + i * 38);
+  });
+
+  // column 2: weekday grid
+  const gx = 380, gy = top + 50, cell = 62, rowH = 38;
+  ctx.font = font(500, 25);
+  ["Mo","Tu","We","Th","Fr","Sa","Su"].forEach((t, i) => {
+    ctx.fillStyle = "#8a8a86";
+    ctx.textAlign = "right";
+    ctx.fillText(t, gx + i * cell + 34, gy);
+  });
+  let r = 1;
+  for (let d = 1; d <= daysIn(m); d++) {
+    const c = dow(m, d);
+    if (d > 1 && c === 0) r++;
+    ctx.fillStyle = c >= 5 ? "#8a8a86" : "#111";
+    ctx.font = font(500, 25);
+    ctx.fillText(String(d), gx + c * cell + 34, gy + r * rowH);
+  }
+  ctx.textAlign = "left";
+
+  // column 3: notes
+  const nx = NOTES_X;
+  ctx.font = font(500, 27); ctx.fillStyle = "#111";
+  ctx.fillText("Notes", nx, top + 50);
+  ctx.fillStyle = "#e3e3e0";
+  for (let i = 1; i <= NOTE_LINES; i++) ctx.fillRect(nx, top + 50 + i * 40 + 6, CW - 44 - nx, 2);
+  if (notes[m]) {
+    ctx.font = font(500, 24); ctx.fillStyle = "#333";
+    wrapLines(ctx, notes[m], CW - 44 - nx).slice(0, NOTE_LINES)
+      .forEach((ln, i) => ctx.fillText(ln, nx, top + 50 + (i + 1) * 40));
+  }
+
+  ctx.restore();
+}
+
+/* ---------- three.js scene ---------- */
+const canvas = document.getElementById("stage");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: CAPTURE });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setClearColor(0xffffff, 1);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(30, 1, 0.5, 60);   // tight near/far = better depth precision
+
+const vert = /* glsl */`
+  varying vec2 vUv; varying vec3 vN; varying vec3 vPos;
+  void main() {
+    vUv = uv;
+    vN = normalize(normalMatrix * normal);
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vPos = mv.xyz;
+    gl_Position = projectionMatrix * mv;
+  }`;
+const frag = /* glsl */`
+  uniform sampler2D map; uniform float dim; uniform float angle;
+  varying vec2 vUv; varying vec3 vN; varying vec3 vPos;
+  void main() {
+    vec3 n = normalize(vN) * (gl_FrontFacing ? 1.0 : -1.0);
+    vec3 V = normalize(-vPos);
+    float l = abs(dot(n, normalize(vec3(0.0, 0.25, 1.0))));
+    float shade = min(mix(0.72, 1.0, l) / mix(0.72, 1.0, 0.970), 1.0);
+    vec3 col = gl_FrontFacing ? texture2D(map, vUv).rgb : vec3(0.965, 0.965, 0.955);
+    col *= shade * dim;
+
+    // --- silver foil sheen, driven by viewing angle ---
+    vec3 L = normalize(vec3(-0.5, 0.9, 0.7));
+    float spec = pow(max(dot(n, normalize(L + V)), 0.0), 18.0);
+    float fres = pow(1.0 - max(dot(n, V), 0.0), 3.0);
+    float d = vUv.x * 0.9 + vUv.y + angle;                  // diagonal sweep
+    float band  = smoothstep(0.34, 0.0, abs(fract(d * 0.55) - 0.5));
+    float band2 = smoothstep(0.16, 0.0, abs(fract(d * 0.55 + 0.17) - 0.5));
+    vec3 silver = vec3(0.93, 0.95, 1.0);
+    vec3 irid = 0.5 + 0.5 * cos(6.2831 * (d * 0.35 + vec3(0.0, 0.33, 0.67)));
+    vec3 tint = mix(silver, irid, 0.18);
+    float k = spec * 0.38 + band * band * 0.2 + band2 * band2 * 0.18 + fres * 0.3;
+    col = mix(col, tint, clamp(k, 0.0, 0.7));
+    gl_FragColor = vec4(col, 1.0);
+  }`;
+const makeMat = () => new THREE.ShaderMaterial({
+  uniforms: { map: { value: null }, dim: { value: 1 }, angle: { value: 0 } },
+  vertexShader: vert, fragmentShader: frag, side: THREE.DoubleSide,
+});
+
+// chrome environment for the metal binding
+import("three/addons/environments/RoomEnvironment.js").then(({ RoomEnvironment }) => {
+  const pm = new THREE.PMREMGenerator(renderer);
+  scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
+});
+
+// geometry hinged at the top edge (y = 0 is the top)
+const makeGeo = () => {
+  const g = new THREE.PlaneGeometry(PAGE_W, PAGE_H, 1, SEG);
+  g.translate(0, -PAGE_H / 2, 0);
+  return g;
+};
+const book = new THREE.Group();                     // whole calendar, tilted
+const TILT = { x: -0.16, y: -0.34, z: 0.035 };
+book.rotation.set(TILT.x, TILT.y, TILT.z);
+scene.add(book);
+
+const base = new THREE.Mesh(makeGeo(), makeMat());   // page underneath
+const flip = new THREE.Mesh(makeGeo(), makeMat());   // page being turned
+base.position.y = flip.position.y = PAGE_H / 2;
+flip.position.z = 0.004;
+flip.visible = false;
+book.add(base, flip);
+
+// stack of remaining pages behind the front sheet
+const DEPTH = 0.085;
+const stripes = (w, h, vertical) => {
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const x = c.getContext("2d");
+  x.fillStyle = "#f3f3f0"; x.fillRect(0, 0, w, h);
+  const n = vertical ? w : h;
+  for (let i = 0; i < n; i += 4) {
+    x.fillStyle = `rgba(0,0,0,${0.035 + Math.random() * 0.04})`;
+    vertical ? x.fillRect(i, 0, 1, h) : x.fillRect(0, i, w, 1);
+  }
+  const t = new THREE.CanvasTexture(c); t.anisotropy = 8; return t;
+};
+const sideMat = new THREE.MeshBasicMaterial({ map: stripes(128, 8, true), color: 0xe4e4e0 });
+const edgeMat = new THREE.MeshBasicMaterial({ map: stripes(8, 128, false), color: 0xf4f4f1 });
+const backMat = new THREE.MeshBasicMaterial({ color: 0xdedcd6 });
+const stack = new THREE.Mesh(
+  new THREE.BoxGeometry(PAGE_W, PAGE_H, DEPTH),
+  [sideMat, sideMat, edgeMat, edgeMat, backMat, backMat]   // +x -x +y -y +z -z
+);
+stack.position.z = -DEPTH / 2 - 0.008;   // clear gap behind the front page (avoids z-fighting streaks)
+book.add(stack);
+
+// back board, slightly larger
+const board = new THREE.Mesh(
+  new THREE.BoxGeometry(PAGE_W + 0.02, PAGE_H + 0.02, 0.018),
+  new THREE.MeshBasicMaterial({ color: 0x1c1c1c })
+);
+board.position.z = -DEPTH - 0.02;
+book.add(board);
+
+// wire binding along the top edge
+const ringGeo = new THREE.TorusGeometry((DEPTH + 0.06) / 2, 0.0065, 10, 40);
+const ringMat = new THREE.MeshStandardMaterial({ color: 0xd8dade, metalness: 1, roughness: 0.18 });
+const RINGS = 17, span = PAGE_W - 0.16;
+for (let i = 0; i < RINGS; i++) {
+  const r = new THREE.Mesh(ringGeo, ringMat);
+  r.rotation.y = Math.PI / 2;
+  r.position.set(-span / 2 + (span * i) / (RINGS - 1), PAGE_H / 2, -(DEPTH + 0.06) / 2);
+  book.add(r);
+}
+
+// soft shadow cast behind the book
+const sh = document.createElement("canvas"); sh.width = 256; sh.height = 256;
+{
+  const c = sh.getContext("2d");
+  const g = c.createRadialGradient(128, 128, 30, 128, 128, 128);
+  g.addColorStop(0, "rgba(0,0,0,0.16)"); g.addColorStop(1, "rgba(0,0,0,0)");
+  c.fillStyle = g; c.fillRect(0, 0, 256, 256);
+}
+const shadow = new THREE.Mesh(
+  new THREE.PlaneGeometry(PAGE_W * 1.35, PAGE_H * 1.25),
+  new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(sh), transparent: true, depthWrite: false })
+);
+shadow.position.set(0.08, -0.08, -DEPTH - 0.06);
+book.add(shadow);
+
+// gentle parallax with the pointer
+const look = { x: 0, y: 0 };
+const noHover = matchMedia("(hover: none)").matches;   // phones / tablets
+let gyro = false;
+addEventListener("deviceorientation", (e) => {          // tilt-to-shine where allowed
+  if (e.gamma == null) return;
+  gyro = true;
+  look.x = THREE.MathUtils.clamp(e.gamma / 30, -0.5, 0.5);
+  look.y = THREE.MathUtils.clamp((e.beta - 50) / 30, -0.5, 0.5);
+});
+addEventListener("pointermove", (e) => {
+  if (noHover) return;
+  look.x = e.clientX / innerWidth - 0.5;
+  look.y = e.clientY / innerHeight - 0.5;
+});
+
+// Wall-calendar flip: the sheet swings up from the bottom, its holes ride over
+// the wire binding, and it drops down behind the calendar. p: 0 = hanging in
+// front, 1 = tucked behind. The free bottom edge leads a little, so the paper bends.
+const PIVOT_R = (DEPTH + 0.06) / 2;   // radius the top edge travels around the binding
+function curl(mesh, p) {
+  const pos = mesh.geometry.attributes.position;
+  const ds = PAGE_H / SEG;
+  const TAU = Math.PI * 2;
+  const spin = TAU * p;                              // rotation of the sheet
+  const lead = 1.1 * Math.sin(Math.PI * p);          // how far the bottom runs ahead
+  // the top edge only rides back over the binding once the sheet has swung past
+  // horizontal, so the hanging part never dips into the pages behind it
+  const k = THREE.MathUtils.clamp((spin - Math.PI / 2) / Math.PI, 0, 1);
+  const beta = Math.PI * k * k * (3 - 2 * k);
+  const lift = 0.03 * Math.sin(spin / 2);            // clear the top edge of the stack
+  let y = PIVOT_R * Math.sin(beta) + lift;
+  let z = -PIVOT_R + PIVOT_R * Math.cos(beta);
+  let prev = spin;
+  for (let j = 0; j <= SEG; j++) {
+    const s = j / SEG;
+    const theta = Math.min(TAU, spin + lead * s * s * (3 - 2 * s));
+    if (j > 0) {
+      const mid = (theta + prev) / 2;
+      y -= Math.cos(mid) * ds;
+      z += Math.sin(mid) * ds;
+    }
+    prev = theta;
+    for (let i = 0; i < 2; i++) {
+      pos.setY(j * 2 + i, y);
+      pos.setZ(j * 2 + i, z);
+    }
+  }
+  pos.needsUpdate = true;
+  mesh.geometry.computeVertexNormals();
+}
+
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  const barH = document.querySelector(".bar").getBoundingClientRect().height;
+  document.documentElement.style.setProperty("--bar-h", `${barH}px`);
+  const barFrac = (barH + 8) / h;
+  const usable = 1 - barFrac;
+  const narrow = camera.aspect < 0.8;
+  TILT.y = narrow ? -0.24 : -0.34;              // less sideways turn on phones
+  const vNeed = Math.max(PAGE_H * (narrow ? 1.2 : 1.3), (PAGE_W * (narrow ? 1.12 : 1.45)) / camera.aspect) / usable * (CAPTURE ? 1.3 : 1);
+  const dist = vNeed / 2 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  camera.position.set(0, -vNeed * barFrac / 2, dist);
+  camera.lookAt(0, -vNeed * barFrac / 2, 0);
+  camera.updateProjectionMatrix();
+}
+addEventListener("resize", () => { resize(); syncUI(); });
+resize();
+
+/* ---------- state + flipping ---------- */
+let current = 0;
+let anim = null;      // { from, to, dir, t }
+let queued = 0;
+const label = document.getElementById("label");
+const removeBtn = document.getElementById("remove");
+const uploadBtn = document.getElementById("upload");
+
+function syncUI() {
+  label.textContent = MONTHS[current];
+  removeBtn.hidden = !images[current];
+  removeBtn.textContent = defaults[current] ? "Reset" : "Remove";
+  const small = innerWidth <= 560;
+  uploadBtn.textContent = (images[current] || defaults[current]) ? (small ? "Replace" : "Replace image") : "Add image";
+  resize();
+}
+function show(m) {
+  base.material.uniforms.map.value = pages[m].tex;
+  base.material.uniforms.dim.value = 1;
+}
+
+function go(dir) {
+  if (anim) { queued = dir; return; }
+  const target = (current + dir + 12) % 12;
+  if (dir > 0) {
+    // current page lifts up and away, revealing next
+    flip.material.uniforms.map.value = pages[current].tex;
+    show(target);
+  } else {
+    // previous page comes down over the current one
+    flip.material.uniforms.map.value = pages[target].tex;
+  }
+  anim = { dir, target, t: 0 };
+  flip.visible = true;
+  curl(flip, dir > 0 ? 0 : 1);
+  current = target;
+  syncUI();
+}
+
+const DURATION = 1.15;
+const clock = new THREE.Clock();
+function tick() {
+  update(Math.min(clock.getDelta(), 0.05), performance.now() / 1000);
+  requestAnimationFrame(tick);
+}
+function update(dt, now) {
+  if (anim) {
+    anim.t = Math.min(1, anim.t + dt / DURATION);
+    const e = 0.5 - 0.5 * Math.cos(Math.PI * anim.t);         // gentle ease in/out
+    const p = anim.dir > 0 ? e : 1 - e;
+    curl(flip, p);
+    base.material.uniforms.dim.value = 1 - 0.14 * Math.sin(Math.PI * Math.min(1, p * 2));  // shadow while the sheet is over it
+    if (anim.t >= 1) {
+      flip.visible = false;
+      show(current);
+      anim = null;
+      if (queued) { const q = queued; queued = 0; go(q); }
+    }
+  }
+  if ((noHover && !gyro) || CAPTURE) {        // no mouse: slow idle sway keeps the shine moving
+    const t = now;
+    look.x = Math.sin(t * 0.55) * 0.4;
+    look.y = Math.sin(t * 0.37) * 0.3;
+  }
+  book.rotation.x += (TILT.x + look.y * 0.12 - book.rotation.x) * 0.06;
+  book.rotation.y += (TILT.y + look.x * 0.2 - book.rotation.y) * 0.06;
+  const ang = (book.rotation.y - TILT.y) * 5 - (book.rotation.x - TILT.x) * 4;
+  base.material.uniforms.angle.value = flip.material.uniforms.angle.value = ang;
+  renderer.render(scene, camera);
+}
+
+/* ---------- images ---------- */
+async function decode(blob) {
+  try { return await createImageBitmap(blob); }
+  catch {
+    return await new Promise((res, rej) => {
+      const im = new Image();
+      im.onload = () => res(im); im.onerror = rej;
+      im.src = URL.createObjectURL(blob);
+    });
+  }
+}
+async function setImage(m, blob) {
+  try {
+    images[m] = await decode(blob);
+  } catch { alert("Sorry, that image couldn't be read."); return; }
+  drawMonth(m);
+  idb("readwrite", (s) => s.put(blob, m));
+  syncUI();
+}
+function clearImage(m) {
+  images[m] = null;
+  drawMonth(m);
+  idb("readwrite", (s) => s.delete(m));
+  syncUI();
+}
+
+const fileInput = document.getElementById("file");
+const pick = () => { fileInput.value = ""; fileInput.click(); };
+fileInput.addEventListener("change", () => {
+  const f = fileInput.files[0];
+  if (f) setImage(current, f);
+});
+uploadBtn.addEventListener("click", pick);
+removeBtn.addEventListener("click", () => clearImage(current));
+document.getElementById("prev").addEventListener("click", () => go(-1));
+document.getElementById("next").addEventListener("click", () => go(1));
+
+// drag & drop onto the window → current month
+let dragDepth = 0;
+addEventListener("dragenter", (e) => { e.preventDefault(); dragDepth++; document.body.classList.add("dragging"); });
+addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove("dragging"); } });
+addEventListener("dragover", (e) => e.preventDefault());
+addEventListener("drop", (e) => {
+  e.preventDefault(); dragDepth = 0; document.body.classList.remove("dragging");
+  const f = [...(e.dataTransfer?.files || [])].find((f) => f.type.startsWith("image/"));
+  if (f) setImage(current, f);
+});
+
+// keys, wheel, swipe, click-on-image
+addEventListener("keydown", (e) => {
+  if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === "PageDown") go(1);
+  if (e.key === "ArrowLeft" || e.key === "ArrowUp" || e.key === "PageUp") go(-1);
+});
+let wheelLock = 0;
+addEventListener("wheel", (e) => {
+  const now = performance.now();
+  if (now < wheelLock || Math.abs(e.deltaY) + Math.abs(e.deltaX) < 25) return;
+  wheelLock = now + 700;
+  go((Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX) > 0 ? 1 : -1);
+}, { passive: true });
+
+const ray = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+function hitRegion(x, y) {
+  if (anim) return null;
+  ndc.set((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  const hit = ray.intersectObject(base)[0];
+  if (!hit) return null;
+  const px = hit.uv.x * CW, py = (1 - hit.uv.y) * CH;
+  if (py < IMG_H) return "image";
+  if (px > NOTES_X - 20 && py > NOTES_TOP) return "notes";
+  return null;
+}
+let down = null;
+canvas.addEventListener("pointerdown", (e) => { down = { x: e.clientX, y: e.clientY }; });
+canvas.addEventListener("pointerup", (e) => {
+  if (!down) return;
+  const dx = e.clientX - down.x, dy = e.clientY - down.y;
+  down = null;
+  if (Math.hypot(dx, dy) > 40) {
+    go((Math.abs(dy) > Math.abs(dx) ? -dy : -dx) > 0 ? 1 : -1);
+  } else {
+    const r = hitRegion(e.clientX, e.clientY);
+    if (r === "image") pick();
+    else if (r === "notes") openNotes();
+  }
+});
+canvas.addEventListener("pointermove", (e) => {
+  const r = hitRegion(e.clientX, e.clientY);
+  canvas.style.cursor = r === "image" ? "pointer" : r === "notes" ? "text" : "default";
+});
+
+/* ---------- notes ---------- */
+const notesPanel = document.getElementById("notes");
+const notesInput = document.getElementById("notesInput");
+let noteMonth = 0, notesOpenedAt = 0;
+function openNotes() {
+  noteMonth = current;
+  document.getElementById("notesTitle").textContent = `Notes · ${MONTHS[noteMonth]}`;
+  notesInput.value = notes[noteMonth];
+  arena.classList.remove("open"); dl.classList.remove("open");
+  notesPanel.classList.add("open");
+  notesOpenedAt = performance.now();
+  notesInput.focus();
+}
+notesInput.addEventListener("input", () => {
+  notes[noteMonth] = notesInput.value;
+  saveNotes();
+  drawMonth(noteMonth);
+});
+notesPanel.addEventListener("click", (e) => e.stopPropagation());
+document.getElementById("notesClose").addEventListener("click", () => notesPanel.classList.remove("open"));
+notesPanel.addEventListener("keydown", (e) => {
+  e.stopPropagation();                                      // don't flip pages while typing
+  if (e.key === "Escape") notesPanel.classList.remove("open");
+});
+
+/* ---------- Are.na import ---------- */
+const arena = document.getElementById("arena");
+const arenaInput = document.getElementById("arenaInput");
+const arenaGo = document.getElementById("arenaGo");
+const arenaStatus = document.getElementById("arenaStatus");
+const status = (t, err) => { arenaStatus.textContent = t; arenaStatus.classList.toggle("err", !!err); };
+try { arenaInput.value = localStorage.getItem("calendar-2027-arena") || ""; } catch {}
+arenaInput.placeholder = DEFAULT_CHANNEL.replace("https://www.", "");
+
+document.getElementById("arenaBtn").addEventListener("click", (e) => {
+  e.stopPropagation();
+  arena.classList.toggle("open");
+  if (arena.classList.contains("open")) arenaInput.focus();
+});
+arena.addEventListener("click", (e) => e.stopPropagation());
+arena.addEventListener("keydown", (e) => e.stopPropagation()); // don't flip pages while typing
+addEventListener("click", () => {
+  arena.classList.remove("open"); dl.classList.remove("open");
+  if (performance.now() - notesOpenedAt > 300) notesPanel.classList.remove("open");
+});
+
+function toSlug(v) {
+  v = v.trim().replace(/[?#].*$/, "").replace(/\/+$/, "");
+  return v.split("/").pop();
+}
+
+async function channelImages(slug) {
+  const found = [], links = [];
+  for (let page = 1; page <= 10 && found.length < 12; page++) {
+    const r = await fetch(`https://api.are.na/v2/channels/${encodeURIComponent(slug)}/contents?per=100&page=${page}`);
+    if (r.status === 404) throw new Error("Channel not found. Is it public?");
+    if (r.status === 401 || r.status === 403) throw new Error("That channel is private.");
+    if (!r.ok) throw new Error(`Are.na returned ${r.status}.`);
+    const { contents = [] } = await r.json();
+    for (const b of contents) {
+      const url = b.image?.large?.url || b.image?.display?.url || b.image?.original?.url;
+      if (!url) continue;
+      (b.class === "Image" ? found : links).push(url);
+    }
+    if (contents.length < 100) break;
+  }
+  // prefer real image blocks; top up with link/media thumbnails if needed
+  return [...found, ...links].slice(0, 12);
+}
+
+document.getElementById("arenaForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const slug = toSlug(arenaInput.value);
+  if (!slug) return status("Enter a channel link or slug.", true);
+  try { localStorage.setItem("calendar-2027-arena", arenaInput.value.trim()); } catch {}
+  arenaGo.disabled = true;
+  status("Looking up channel…");
+  try {
+    const urls = await channelImages(slug);
+    if (!urls.length) throw new Error("No images in that channel.");
+    let done = 0;
+    status(`Loading ${urls.length} images…`);
+    await Promise.all(urls.map(async (url, m) => {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error("An image failed to load.");
+      await setImage(m, await r.blob());
+      status(`Loading images… ${++done}/${urls.length}`);
+    }));
+    status(urls.length < 12
+      ? `Filled ${urls.length} months. The channel only had ${urls.length} images.`
+      : "Done. All 12 months filled.");
+  } catch (err) {
+    status(err.message || "Something went wrong.", true);
+  } finally {
+    arenaGo.disabled = false;
+  }
+});
+
+/* ---------- download / print ---------- */
+const dl = document.getElementById("dl");
+const dlStatus = document.getElementById("dlStatus");
+const EXPORT_SCALE = 2;  // 2400×3200 px ≈ 300 dpi on a 7.5 × 10 in page
+
+document.getElementById("dlBtn").addEventListener("click", (e) => {
+  e.stopPropagation();
+  arena.classList.remove("open");
+  dl.classList.toggle("open");
+});
+document.getElementById("arenaBtn").addEventListener("click", () => dl.classList.remove("open"));
+dl.addEventListener("click", (e) => e.stopPropagation());
+
+function renderHiRes(m) {
+  const c = document.createElement("canvas");
+  c.width = CW * EXPORT_SCALE; c.height = CH * EXPORT_SCALE;
+  const ctx = c.getContext("2d");
+  ctx.scale(EXPORT_SCALE, EXPORT_SCALE);
+  paint(ctx, m);
+  return c;
+}
+const saveBlob = (blob, name) => {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+};
+let jsPDFReady;
+const loadJsPDF = () => jsPDFReady ||= new Promise((res, rej) => {
+  const sc = document.createElement("script");
+  sc.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+  sc.onload = () => res(window.jspdf.jsPDF);
+  sc.onerror = () => { jsPDFReady = null; rej(new Error("Couldn't load the PDF library.")); };
+  document.head.appendChild(sc);
+});
+const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
+
+dl.querySelectorAll("button[data-fmt]").forEach((btn) => btn.addEventListener("click", async () => {
+  const fmt = btn.dataset.fmt;
+  const buttons = dl.querySelectorAll("button[data-fmt]");
+  buttons.forEach((b) => (b.disabled = true));
+  dlStatus.classList.remove("err");
+  try {
+    if (fmt === "png") {
+      const c = renderHiRes(current);
+      const blob = await new Promise((r) => c.toBlob(r, "image/png"));
+      saveBlob(blob, `calendar-2027-${pad(current + 1)}-${MONTHS[current].toLowerCase()}.png`);
+      dlStatus.textContent = `Saved ${MONTHS[current]}.`;
+    } else {
+      dlStatus.textContent = "Preparing PDF…";
+      const jsPDF = await loadJsPDF();
+      const pdf = new jsPDF({ unit: "pt", format: fmt, orientation: "portrait", compress: true });
+      const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
+      const margin = 36;                                  // 0.5 in
+      const w = Math.min(pw - margin * 2, (ph - margin * 2) * CW / CH);
+      const h = w * CH / CW;
+      const x = (pw - w) / 2, y = (ph - h) / 2;
+      for (let m = 0; m < 12; m++) {
+        dlStatus.textContent = `Rendering ${MONTHS[m]}… (${m + 1}/12)`;
+        await nextFrame();
+        if (m) pdf.addPage(fmt, "portrait");
+        const data = renderHiRes(m).toDataURL("image/jpeg", 0.92);
+        pdf.addImage(data, "JPEG", x, y, w, h, undefined, "FAST");
+      }
+      pdf.setProperties({ title: "Calendar 2027" });
+      saveBlob(pdf.output("blob"), `calendar-2027-${fmt}.pdf`);
+      dlStatus.textContent = "PDF saved. Print at 100% / actual size.";
+    }
+  } catch (err) {
+    dlStatus.classList.add("err");
+    dlStatus.textContent = err.message || "Download failed.";
+  } finally {
+    buttons.forEach((b) => (b.disabled = false));
+  }
+}));
+
+/* ---------- boot ---------- */
+await Promise.all(MONTHS.map(async (_, m) => {
+  const blob = await idb("readonly", (s) => s.get(m));
+  if (blob) { try { images[m] = await decode(blob); } catch {} }
+  drawMonth(m);
+}));
+show(current);
+syncUI();
+if (!CAPTURE) tick();
+
+// fill any month without your own photo from the default channel (not saved, so
+// Reset / Remove brings the default back; fails quietly if offline)
+const defaultsReady = (async () => {
+  try {
+    const urls = await channelImages(toSlug(DEFAULT_CHANNEL));
+    await Promise.all(urls.map(async (url, m) => {
+      try {
+        defaults[m] = await decode(await (await fetch(url)).blob());
+        drawMonth(m);
+      } catch {}
+    }));
+    syncUI();
+  } catch (e) { console.warn("Default images unavailable", e); }
+})();
+
+/* ---------- video capture (?capture): steps frames deterministically, encodes MP4 ---------- */
+if (CAPTURE) {
+  window.__capture = async ({ seconds = 15, fps = 60, every = 1.3, start = 0.5, arena = "", turn = 0.24 } = {}) => {
+    await defaultsReady;
+    if (arena) {                                       // pull the same images as the Are.na import
+      const urls = await channelImages(toSlug(arena));
+      await Promise.all(urls.map(async (url, m) => setImage(m, await (await fetch(url)).blob())));
+    }
+    const baseX = TILT.x, baseY = TILT.y;
+    const { Muxer, ArrayBufferTarget } = await import("https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/build/mp4-muxer.mjs");
+    const width = canvas.width, height = canvas.height;
+    const target = new ArrayBufferTarget();
+    const muxer = new Muxer({ target, video: { codec: "avc", width, height }, fastStart: "in-memory" });
+    let encErr = null;
+    const encoder = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => (encErr = e) });
+    encoder.configure({ codec: "avc1.640034", width, height, bitrate: 14e6, framerate: fps });
+    const total = Math.round(seconds * fps), dt = 1 / fps;
+    let nextFlip = start, flips = 0;
+    // settle the tilt before recording
+    for (let i = 0; i < 120; i++) update(1 / 60, 0);
+    for (let f = 0; f < total; f++) {
+      const t = f * dt;
+      if (t >= nextFlip && flips < 11) { go(1); flips++; nextFlip += every; }
+      const w = Math.sin((Math.PI * 2 * t) / seconds);      // one slow turn out and back (loops cleanly)
+      TILT.y = baseY + turn * w;
+      TILT.x = baseX + turn * 0.18 * Math.cos((Math.PI * 2 * t) / seconds);
+      update(dt, t);
+      const frame = new VideoFrame(canvas, { timestamp: Math.round(t * 1e6), duration: Math.round(dt * 1e6) });
+      encoder.encode(frame, { keyFrame: f % (fps * 2) === 0 });
+      frame.close();
+      if (encoder.encodeQueueSize > 8) await new Promise((r) => setTimeout(r, 0));
+      if (encErr) throw encErr;
+    }
+    await encoder.flush();
+    muxer.finalize();
+    const bytes = new Uint8Array(target.buffer);
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  };
+  window.__ready = true;
+}
+</script>
+</body>
+</html>
